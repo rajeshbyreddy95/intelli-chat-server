@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pdfplumber
@@ -13,11 +12,14 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-# Initialize LLM (same as your setup)
+# Initialize LLM
 llm = ChatPerplexity(
     model="sonar",
     temperature=0.6,
 )
+
+# Store conversations in memory (dict: user_id -> list of messages)
+conversations = {}
 
 prompt_template = """
 You are a professional summarizer.
@@ -61,16 +63,31 @@ def summarize():
 def chat():
     try:
         data = request.get_json()
-        user_input = data.get("message", "").strip()
-        print(user_input)
+        user_input = (data.get("message") or "").strip()
+        user_id = data.get("user_id", "default")  # frontend should pass user_id
+        print(f"[{user_id}] {user_input}")
+
         if not user_input:
             return jsonify({"error": "Message is required"}), 400
 
-        response = llm.invoke([
-            HumanMessage(content=f"You are a friendly chatbot. Reply conversationally. User says: {user_input}")
-        ])
+        # Initialize conversation if new user
+        if user_id not in conversations:
+            conversations[user_id] = []
 
-        return jsonify({"response": response.content.strip()})
+        # Append user message
+        conversations[user_id].append({"role": "user", "content": user_input})
+
+        # Build conversation history for LLM
+        history = [HumanMessage(content=msg["content"]) if msg["role"] == "user" 
+                   else HumanMessage(content=msg["content"])  # adjust if system/assistant roles needed
+                   for msg in conversations[user_id]]
+
+        response = llm.invoke(history)
+
+        # Append assistant response to conversation
+        conversations[user_id].append({"role": "assistant", "content": response.content.strip()})
+
+        return jsonify({"response": response.content.strip(), "history": conversations[user_id]})
 
     except Exception as e:
         print("Error in /chat:", e)
@@ -92,7 +109,6 @@ def ask_with_context():
         if not user_input:
             return jsonify({"error": "Message is required"}), 400
 
-        # Compose a system + context prompt that instructs the model to use page_text as source
         system_prompt = (
             "You are an assistant that must answer user questions using the provided page text. "
             "If the answer is present in the page_text, answer concisely and cite that it came from the page. "
@@ -113,5 +129,4 @@ def ask_with_context():
 
 
 if __name__ == "__main__":
-    # Use 0.0.0.0 if you want to access from other devices in LAN
     app.run(host="0.0.0.0", port=5040, debug=True)
