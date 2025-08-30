@@ -1,0 +1,9 @@
+flask
+flask-cors
+python-dotenv
+pdfplumber
+langchain-perplexity
+streamlit
+requests
+openpyxl
+langchain
